@@ -12,9 +12,7 @@ main = function() {
 
   library(seqUtils, quietly = T, warn.conflicts = F, verbose = F)
   library(convergence, quietly = T, warn.conflicts = F, verbose = F)
-
   library(treeio, quietly = T, warn.conflicts = F, verbose = F, )
-
   library(purrr, quietly = T, warn.conflicts = F, verbose = F)
   library(dplyr, quietly = T, warn.conflicts = F, verbose = F)
   library(stringr, quietly = T, warn.conflicts = F, verbose = F)
@@ -118,26 +116,26 @@ main = function() {
 
     tree_tibble_mutation_occs = usher_tree_and_sequences$tree_tibble %>%
       filter(
-        map_lgl(aa_mutations_nonsyn, ~mutation %in% str_sub(.x, 2)),
+        map_lgl(aa_mutations_nonsyn, ~ mutation %in% str_sub(.x, 2)),
         nd >= min_tips
       ) %>%
       arrange(-nd)
 
-    for (r_m in required_mutations){
+    for (r_m in required_mutations) {
       at = as.integer(r_m[["at"]])
       to = r_m[["to"]]
       tree_tibble_mutation_occs = tree_tibble_mutation_occs %>%
         filter(substr(reconstructed_aa_sequence, at, at) == to)
     }
 
-    for (f_m in required_mutations){
+    for (f_m in required_mutations) {
       at = as.integer(f_m[["at"]])
       to = f_m[["to"]]
       tree_tibble_mutation_occs = tree_tibble_mutation_occs %>%
         filter(substr(reconstructed_aa_sequence, at, at) != to)
     }
 
-    if (nrow(tree_tibble_mutation_occs) != 1){
+    if (nrow(tree_tibble_mutation_occs) != 1) {
       stop("No tree branches fulfilling specification found ")
     }
 

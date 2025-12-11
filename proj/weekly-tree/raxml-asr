@@ -32,7 +32,7 @@ def raxml_ng_asr(working_dir: Path, source_fas: Path, source_tree: Path, slurm_n
     output_dir = get_output_dir(working_dir, "raxml-ng-asr.")
 
     source_tree_with_min_branch_lengths = source_tree.parent.joinpath("000_minbl.treefile")
-    bl_script_path = os.environ["AE_ROOT"] + "/R/set_min_branch_lengths.R"
+    bl_script_path = os.environ["AE_ROOT"] + "/proj/weekly-tree/set_min_branch_lengths.R"
 
     set_min_bl_cmd = [
         bl_script_path, 
