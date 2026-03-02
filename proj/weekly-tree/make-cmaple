@@ -3,6 +3,12 @@
 import sys, os, re, argparse, logging, datetime, concurrent.futures, subprocess, random, traceback
 from pathlib import Path
 
+if os.environ.get("DYLD_INSERT_LIBRARIES"):
+    sys.path[:0] = [str(Path(os.environ["AE_ROOT"], dir)) for dir in ["build.debug", "py"]]
+else:
+    sys.path[:0] = [str(Path(os.environ["AE_ROOT"], dir)) for dir in ["build", "py"]]
+import ae_backend
+
 # ======================================================================
 
 sSubtypeNorm = {"BV": "BVIC", "BVIC": "BVIC", "BY": "BYAM", "BYAM": "BYAM", "A(H1N1)": "A(H1N1)", "H1": "A(H1N1)", "1": "A(H1N1)", "A(H3N2)": "A(H3N2)", "H3": "A(H3N2)", "3": "A(H3N2)"}
@@ -18,10 +24,11 @@ def main(args: argparse.Namespace):
     argv = '"' + '" "'.join(sys.argv) + '"'
     working_dir = Path(args.subdir).resolve()
     source_fas = working_dir.joinpath("source.fas")
-    # source_tree = working_dir.joinpath("source.newick") no source tree, we make from scratch each time
+    source_tree = working_dir.joinpath("previous.newick")
+    method = args.method
     outgroup = source_fas.open().readline().strip()[1:]
     try:
-        best_tree_file = cmaple(working_dir=working_dir, source_fas=source_fas, outgroup=outgroup, num_runs=args.num_runs, slurm_nodelist=args.slurm_nodelist, slurm_exclude_nodes=args.slurm_exclude_nodes)
+        best_tree_file = cmaple(working_dir=working_dir, source_tree=source_tree, source_fas=source_fas, method=method, outgroup=outgroup, num_runs=args.num_runs, slurm_nodelist=args.slurm_nodelist, slurm_exclude_nodes=args.slurm_exclude_nodes)
         subprocess.run(["/usr/bin/mail", "-s", f"completed {sys.argv[0]} {working_dir}", sMailTo], input=f"cd {working_dir}\n{argv}\n{best_tree_file}\n", text=True)
         logging.info(f"mail to {sMailTo} about completion sent")
         return 0
@@ -33,20 +40,30 @@ def main(args: argparse.Namespace):
 
 # ----------------------------------------------------------------------
 
-def cmaple(working_dir: Path, source_fas: Path, outgroup: str, slurm_nodelist: str, slurm_exclude_nodes: str, num_runs: int):
+def cmaple(working_dir: Path, source_tree: Path, source_fas: Path, method: str, outgroup: str, slurm_nodelist: str, slurm_exclude_nodes: str, num_runs: int):
 
     output_dir = get_output_dir(working_dir, "cmaple.")
+
+    method_to_cmsearch = {
+        "add_reop": "EXHAUSTIVE", # add seqs to existing tree, and reoptimises from that tree
+        "add_lazy": "NORMAL", # add seqs to existing tree, no subsequent reoptimisation
+        "scratch": "EXHAUSTIVE" # reoptimise from scratch, discarding previous tree
+    }
 
     cmaple_cmd = [
         "/syn/bin/cmaple",
         "-aln", str(source_fas),
         "-st", "DNA",
         "-m", "GTR",
-        "--search", "EXHAUSTIVE",
+        "--search", method_to_cmsearch[method],
         "--min-blength", "0.0001",
         "-nt", "1",
         "--overwrite"
     ]
+
+    if method != "scratch":
+        pruned_tree = prune_source_tree(source_tree, source_fas, output_dir)
+        cmaple_cmd.extend(["-t", str(pruned_tree)])
 
     # ----------------------------------------------------------------------
 
@@ -113,6 +130,19 @@ def cmaple(working_dir: Path, source_fas: Path, outgroup: str, slurm_nodelist: s
 
 # ----------------------------------------------------------------------
 
+def prune_source_tree(source_tree: Path, source_fas: Path, output_dir: Path) -> Path:
+    fasta_names = {line[1:].strip() for line in source_fas.open() if line.startswith(">")}
+    tree = ae_backend.tree.load(source_tree)
+    to_remove = [leaf for leaf in tree.select_leaves() if leaf.name() not in fasta_names]
+    if to_remove:
+        logging.info(f"pruning {len(to_remove)} tips from source tree not in source.fas")
+        tree.remove(to_remove)
+    pruned_path = output_dir / "previous_pruned.newick"
+    ae_backend.tree.export(tree, pruned_path)
+    return pruned_path
+
+# ----------------------------------------------------------------------
+
 def get_output_dir(working_dir, prefix):
     output_dirs = list(working_dir.glob(prefix + "*"))
     if output_dirs:
@@ -128,6 +158,7 @@ def get_output_dir(working_dir, prefix):
 try:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("subdir")
+    parser.add_argument("--method", dest="method")
     # parser.add_argument("outgroup")
     parser.add_argument("-n", "--num-runs", dest="num_runs", type=int, default=1)
     parser.add_argument("--node", dest="slurm_nodelist", default="i22")
